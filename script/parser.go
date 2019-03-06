@@ -2,6 +2,7 @@ package script
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -19,13 +20,23 @@ func init() {
 	regexpStar = regexp.MustCompile("\\* as ([a-zA-Z_0-9]*)")
 }
 
+type parseMode uint8
+
+const (
+	modeNop parseMode = iota
+	modeImport
+	modeExport
+)
+
 // Parse parses a single EcmaScript6-compatible byte slice and returns a File containing
 // the import and export statements that it could find.
 func Parse(r io.Reader, relPath string) (*File, error) {
 	var (
-		line   string
-		lineNr int
-		err    error
+		line, concatStmt       string
+		stmt                   []string
+		mode                   parseMode
+		currLineNr, stmtLineNr int
+		err                    error
 	)
 	f := NewFile(relPath)
 	br := bufio.NewReader(r)
@@ -35,23 +46,45 @@ func Parse(r io.Reader, relPath string) (*File, error) {
 		if err != nil && err != io.EOF {
 			return f, err
 		}
+		line = strings.Trim(line, " \n")
 
-		lineNr++
+		currLineNr++
 
-		// Let's just handle single line statements for now.
 		if strings.HasPrefix(line, "export") {
-			exp := &ExportStmt{FileRef: f, Line: lineNr, RefCount: 0, Name: findName(line), Signature: cleanSig(line)}
-			hash := exp.Hash(relPath)
-			f.Exports[hash] = exp
+			mode = modeExport
+			stmtLineNr = currLineNr
+		} else if strings.HasPrefix(line, "import") {
+			mode = modeImport
+			stmtLineNr = currLineNr
 		}
 
-		// @TODO: Checking for imports should be enough, but unused imports might exist
-		// in projects not using auto imports.
-		if strings.HasPrefix(line, "import") {
-			imports := findImports(line, relPath)
-			for _, imp := range imports {
-				imp.FileRef = f
-				f.Imports[imp.Hash("")] = imp
+		// If we have a complete statement, process it and reset the mode.
+		if mode > modeNop {
+			stmt = append(stmt, line)
+
+			// By counting the string delimiters in "... from './path/to/file'", we can determine if
+			// we reached the last line of the statement. A bit hackish, but should be faster than running
+			// a JavaScript parsing engine.
+			if mode == modeImport && (strings.Count(line, "'") == 2 || strings.Count(line, "\"") == 2) {
+				concatStmt = strings.Replace(strings.Join(stmt, " "), "\n", " ", -1)
+				imports := findImports(concatStmt, relPath)
+
+				for _, imp := range imports {
+					imp.FileRef = f
+					f.Imports[imp.Hash("")] = imp
+				}
+
+				mode = modeNop
+				stmt = nil
+			} else if mode == modeExport {
+				// Parsing exports currently only works for single lines.
+				concatStmt = strings.Join(stmt, " ")
+
+				exp := &ExportStmt{FileRef: f, Line: stmtLineNr, RefCount: 0, Name: findName(concatStmt), Signature: cleanSig(concatStmt)}
+				f.Exports[exp.Hash(relPath)] = exp
+
+				mode = modeNop
+				stmt = nil
 			}
 		}
 
@@ -93,26 +126,48 @@ func findName(sig string) string {
 // An ImportStmt is returned for each one.
 func findImports(sig, fpath string) []*ImportStmt {
 	// First, we find the import path; ... from 'path/to/some/file'.
-	sig = strings.TrimRight(sig, ";\n")
-	lit := sig[len(sig)-1:]
-	i := strings.Index(sig, lit)
-	j := strings.LastIndex(sig, lit)
-	relPath := sig[i+1 : j]
+	sig = strings.TrimRight(sig, ";\n\t")
+	var relPath string
+
+	// Find the path while taking care to avoid comments etc.
+	fparts := strings.Split(sig, " ")
+	for i, fpart := range fparts {
+		if fpart == "from" && i+1 < len(fparts) {
+			relPath = strings.Trim(fparts[i+1], "'\";")
+			break
+		}
+	}
+	if relPath == "" {
+		return []*ImportStmt{}
+	}
 
 	// Ignore imports from external packages.
 	if relPath[:1] != "." && relPath[:1] != "/" {
 		return []*ImportStmt{}
 	}
 
-	matches := regexpStar.FindStringSubmatch(sig) // import * as alias from ...
+	// import * as alias from ...
+	matches := regexpStar.FindStringSubmatch(sig)
 	if len(matches) > 0 {
 		stmt := &ImportStmt{Name: "*", RelPath: relPath, Namespace: matches[0][strings.LastIndex(matches[0], " ")+1:]}
 		stmt.Hash(fpath)
 		return []*ImportStmt{stmt}
 	}
 
+	// import name from ...
+	braceIndex := strings.IndexByte(sig, '{')
+	if braceIndex < 0 {
+		words := strings.Split(sig, " ")
+		if len(words) < 4 {
+			panic(fmt.Sprintf("unreadable import statement: %q", sig))
+		}
+		stmt := &ImportStmt{Name: words[1], RelPath: relPath, Namespace: ""}
+		stmt.Hash(fpath)
+		return []*ImportStmt{stmt}
+	}
+
 	// import { a, b, c } from ...
-	group := strings.Trim(sig[strings.IndexByte(sig, '{')+1:strings.IndexByte(sig, '}')], " ")
+	group := strings.Trim(sig[braceIndex+1:strings.IndexByte(sig, '}')], " ")
 	parts := strings.Split(group, ",")
 
 	var (
@@ -122,7 +177,7 @@ func findImports(sig, fpath string) []*ImportStmt {
 
 	imps := make([]*ImportStmt, len(parts))
 	for k, part = range parts {
-		part = strings.Trim(part, " ")
+		part = strings.Trim(part, " \t\n")
 		end = strings.IndexByte(part, ' ')
 		if end == -1 {
 			end = len(part)

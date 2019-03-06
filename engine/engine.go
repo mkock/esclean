@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/mkock/esclean/script"
@@ -22,7 +23,7 @@ func (rep Report) String() string {
 		b    strings.Builder
 	)
 
-	fmt.Fprintln(&b, "Results:")
+	fmt.Fprintln(&b, "Unused exports:")
 	for _, line = range rep.Results {
 		fmt.Fprintf(&b, "  %s", line)
 	}
@@ -34,7 +35,7 @@ func (rep Report) String() string {
 		}
 	}
 
-	fmt.Fprintf(&b, "\nUnused imports: %d\n", rep.UnusedExports)
+	fmt.Fprintf(&b, "\nUnused exports in total: %d\n", rep.UnusedExports)
 
 	return b.String()
 }
@@ -62,17 +63,37 @@ func New(index string, loader SourceLoader) *Engine {
 // Start starts the engine.
 func (ng *Engine) Start() (Report, error) {
 	index := filepath.Join(ng.basePath, ng.index)
+	queue := make([]*script.File, 0, 10)
+	var i int
 
 	// Visit the index file.
-	fix, err := ng.visit(index)
+	file, err := ng.visit(index)
 	if err != nil {
 		return Report{}, err
 	}
+	queue = append(queue, file)
 
-	// Traverse the source code recursively.
-	if err = ng.follow(fix); err != nil {
-		return Report{}, err
+	// Follow imports.
+	for {
+		fis, err := ng.visitImports(queue[i])
+		if err != nil {
+			return Report{}, err
+		}
+		if len(fis) > 0 {
+			queue = append(queue, fis...)
+			// Reset already processed queue items.
+			queue[i] = nil
+		}
+		i++
+		// Allow the GC to run every 10,000 items.
+		if i%10000 == 0 {
+			runtime.GC()
+		}
+		if i == len(queue) {
+			break
+		}
 	}
+	queue = nil
 
 	// Update all RefCounts.
 	ng.tree.UpdateRefCounts()
@@ -104,62 +125,24 @@ func (ng *Engine) createReport() Report {
 	return report
 }
 
-// follow calls Engine.parse() on the given *script.File, and then recursively calls Engine.follow() again on each
-// script.ImportStmt in order to traverse an entire project's source code.
-// It uses an internal map to keep track of visited files to avoid visiting the same file twice.
-func (ng *Engine) follow(file *script.File) error {
-	var (
-		ok      bool
-		absPath string
-		err     error
-	)
-
-	// Follow imports.
-	fis, err := ng.parse(file)
-	if err != nil {
-		return err
-	}
-
-	for _, fi := range fis {
-		// Did we visit this file before?
-		absPath = filepath.Join(ng.basePath, fi.RelPath)
-		if _, ok = ng.tree[absPath]; ok {
-			fmt.Printf("already visited %q...\n", absPath)
-			continue
-		}
-
-		// Follow it.
-		if err = ng.follow(fi); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// parse takes a *script.File, parses it, follows all import statements exactly one level down,
+// visitImports takes a *script.File, visits it, follows all import statements exactly one level down,
 // parses each one and returns a slice of *script.File's; one per import statement.
-func (ng *Engine) parse(file *script.File) ([]*script.File, error) {
+func (ng *Engine) visitImports(file *script.File) ([]*script.File, error) {
 	var (
-		fname, resFname string
-		fi              *script.File
-		err             error
+		fi  *script.File
+		err error
 	)
 
 	fis := make([]*script.File, 0, len(file.Imports))
 
 	for _, imp := range file.Imports {
-
-		fname = filepath.Join(ng.basePath, imp.RelPath)
-		resFname = ng.loader.Resolve(fname)
-		if resFname == "" {
-			return fis, fmt.Errorf("unable to resolve %q", fname)
+		if fi, err = ng.visit(imp.RelPath); err != nil {
+			return fis, err
 		}
-		imp.RelPath = resFname[len(ng.basePath):]
-		if fi, err = ng.visit(fname); err == nil {
+		// Ignore already visited files.
+		if fi != nil {
 			fis = append(fis, fi)
 		}
-
 	}
 
 	return fis, nil
@@ -169,11 +152,15 @@ func (ng *Engine) parse(file *script.File) ([]*script.File, error) {
 func (ng *Engine) visit(file string) (*script.File, error) {
 	// Resolve the file.
 	resFile := ng.loader.Resolve(file)
-
 	if resFile == "" {
 		return &script.File{}, fmt.Errorf("unable to resolve file %q", file)
 	}
 	file = resFile
+
+	// Did we visit this file before?
+	if _, ok := ng.tree[file]; ok {
+		return nil, nil
+	}
 
 	fi := script.NewFile(file)
 
@@ -187,6 +174,14 @@ func (ng *Engine) visit(file string) (*script.File, error) {
 	// Parse the file.
 	if fi, err = script.Parse(rc, file); err != nil {
 		return fi, err
+	}
+	// Resolve each import statement.
+	for _, imp := range fi.Imports {
+		resImpFile := ng.loader.Resolve(filepath.Join(filepath.Dir(file), imp.RelPath))
+		if resImpFile == "" {
+			return &script.File{}, fmt.Errorf("unable to resolve file %q", imp.RelPath)
+		}
+		imp.RelPath = resImpFile
 	}
 
 	// Remember the visit.

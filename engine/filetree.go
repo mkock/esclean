@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/mkock/esclean/script"
 )
@@ -25,19 +24,13 @@ func (tree *FileTree) Visited() []string {
 // UpdateRefCounts traverses the file tree, and for each ImportStmt, it will attempt to match it to an ExportStmt
 // from the file that matches the file path, and if found, increment its RefCount.
 func (tree *FileTree) UpdateRefCounts() {
-	var relPath string
-
-	// Note: this algorithm is O(n3), which is not so good.
+	// Note: this algorithm is O(n^3), which is not so good.
 	for _, file := range *tree {
-
-		fpath, _ := filepath.Split(file.RelPath)
 
 		for _, imp := range file.Imports {
 
 			// Look for the file that matches the import path.
-			relPath = filepath.Join(fpath, imp.RelPath)
-			// fmt.Printf("paths=> final: %q, fpath: %q, rel: %q\n", relPath, fpath, relPath)
-			if match, ok := (*tree)[relPath]; ok {
+			if match, ok := (*tree)[imp.RelPath]; ok {
 
 				// Find the matching export and increment its RefCount.
 				for _, exp := range match.Exports {
@@ -48,7 +41,7 @@ func (tree *FileTree) UpdateRefCounts() {
 
 			} else {
 
-				fmt.Printf("Warning: unmatched path: %q\n", relPath)
+				fmt.Printf("Warning: unmatched path: %q\n", imp.RelPath)
 
 			}
 		}

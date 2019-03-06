@@ -23,17 +23,20 @@ func NewFileLoader() *FileLoader {
 func (fileload *FileLoader) Resolve(fname string) string {
 	var err error
 
-	// If we have a file extension, there's no need to guess.
-	if fname == "" || filepath.Ext(fname) != "" {
+	// If we have a valid file extension, there's no need to guess.
+	ext := filepath.Ext(fname)
+	if fname == "" || ext == ".js" || ext == ".ts" {
 		return fname
 	}
 
 	fname = strings.TrimRight(fname, "/")
-	options := [4]string{
+	options := [6]string{
 		fname + ".ts",
+		fname + ".d.ts",
 		fname + ".js",
 		fname + "/index.js",
 		fname + "/index.ts",
+		fname + "/index.d.ts",
 	}
 	for _, opt := range options {
 		if _, err = os.Stat(opt); err == nil {

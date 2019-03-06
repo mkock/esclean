@@ -25,8 +25,9 @@ func NewMemLoader(fileset map[string]string) *MemLoader {
 func (memload *MemLoader) Resolve(fname string) string {
 	var ok bool
 
-	// If we have a file extension, there's no need to guess.
-	if fname == "" || filepath.Ext(fname) != "" {
+	// If we have a valid file extension, there's no need to guess.
+	ext := filepath.Ext(fname)
+	if fname == "" || ext == ".js" || ext == ".ts" {
 		if _, ok = memload.fileset[fname]; ok {
 			return fname
 		}
@@ -34,11 +35,13 @@ func (memload *MemLoader) Resolve(fname string) string {
 	}
 
 	fname = strings.TrimRight(fname, "/")
-	options := [4]string{
+	options := [6]string{
 		fname + ".ts",
+		fname + ".d.ts",
 		fname + ".js",
 		fname + "/index.js",
 		fname + "/index.ts",
+		fname + "/index.d.ts",
 	}
 	for _, opt := range options {
 		if _, ok = memload.fileset[opt]; ok {

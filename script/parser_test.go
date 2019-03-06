@@ -84,6 +84,7 @@ func TestFindImportNamesFindsNames(t *testing.T) {
 		"import * as aSpecialName from './somewhere/else'":                        []interface{}{"*"},
 		"import {aa as bb} from './somewhere/else'":                               []interface{}{"aa"},
 		"import { aa as name1, bb as name2, cc as NAME3} from './somewhere/else'": []interface{}{"aa", "bb", "cc"},
+		"import superRoutes from './my/routingLayer.v2'":                          []interface{}{"superRoutes"},
 	}
 
 	for in, expected := range cases {
@@ -222,6 +223,57 @@ function ignoredFunction() {
 		}
 		if len(actual.Imports) != 3 {
 			t.Fatalf("Expected len(actual.Imports) == 3, actual == %d", len(actual.Imports))
+		}
+		if !importStmtContainsAll(actual.Imports, expected) {
+			t.Fatalf("Expected actual.Imports to contain %v", expected)
+		}
+	})
+
+	t.Run("finds multi-line imports", func(t *testing.T) {
+		file := `
+import { firstName,
+	secondName as otherName,
+	thirdName as newName
+} from './somewhere'
+
+function ignoredFunction() {
+	return 'I feel ignored'
+}
+`
+
+		r := strings.NewReader(file)
+		actual, err := Parse(r, "./")
+		expected := []string{"firstName", "secondName", "thirdName"}
+
+		if err != nil && err != io.EOF {
+			t.Error(err)
+		}
+		if len(actual.Imports) != 3 {
+			t.Fatalf("Expected len(actual.Imports) == 3, actual == %d", len(actual.Imports))
+		}
+		if !importStmtContainsAll(actual.Imports, expected) {
+			t.Fatalf("Expected actual.Imports to contain %v", expected)
+		}
+	})
+
+	t.Run("finds imports with comments", func(t *testing.T) {
+		file := `
+import { firstName } from './somewhere' // @TODO: Rethink the names.
+
+function ignoredFunction() {
+	return 'I feel ignored'
+}
+`
+
+		r := strings.NewReader(file)
+		actual, err := Parse(r, "./")
+		expected := []string{"firstName"}
+
+		if err != nil && err != io.EOF {
+			t.Error(err)
+		}
+		if len(actual.Imports) != 1 {
+			t.Fatalf("Expected len(actual.Imports) == 1, actual == %d", len(actual.Imports))
 		}
 		if !importStmtContainsAll(actual.Imports, expected) {
 			t.Fatalf("Expected actual.Imports to contain %v", expected)

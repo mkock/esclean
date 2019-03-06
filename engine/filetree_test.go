@@ -33,16 +33,16 @@ func TestUpdateRefCounts(t *testing.T) {
 		tree := &FileTree{
 			"/projectA/file1": &script.File{
 				RelPath: "/projectA/file1",
-				Imports: map[uint64]*script.ImportStmt{1: &script.ImportStmt{Name: "funcTwo", RelPath: "./file2", Namespace: ""}},
+				Imports: map[uint64]*script.ImportStmt{1: &script.ImportStmt{Name: "funcTwo", RelPath: "/projectA/file2", Namespace: ""}},
 				Exports: map[uint64]*script.ExportStmt{},
 			},
 			"/projectA/file2": &script.File{
 				RelPath: "/projectA/file2",
-				Imports: map[uint64]*script.ImportStmt{2: &script.ImportStmt{Name: "funcThree", RelPath: "./file3", Namespace: ""}},
+				Imports: map[uint64]*script.ImportStmt{2: &script.ImportStmt{Name: "funcThree", RelPath: "/projectA/file3", Namespace: ""}},
 				Exports: map[uint64]*script.ExportStmt{2: &script.ExportStmt{Line: 3, RefCount: 0, Name: "funcTwo", Signature: "export function funcTwo()"}},
 			},
 			"/projectA/file3": &script.File{
-				RelPath: "/projectA/file1",
+				RelPath: "/projectA/file3",
 				Imports: map[uint64]*script.ImportStmt{},
 				Exports: map[uint64]*script.ExportStmt{3: &script.ExportStmt{Line: 28, RefCount: 0, Name: "funcThree", Signature: "export function funcThree(var1)"}},
 			},
@@ -63,12 +63,12 @@ func TestUpdateRefCounts(t *testing.T) {
 		tree := &FileTree{
 			"/projectA/file1": &script.File{
 				RelPath: "/projectA/file1",
-				Imports: map[uint64]*script.ImportStmt{1: &script.ImportStmt{Name: "*", RelPath: "./file2", Namespace: "funk"}},
+				Imports: map[uint64]*script.ImportStmt{1: &script.ImportStmt{Name: "*", RelPath: "/projectA/file2", Namespace: "funk"}},
 				Exports: map[uint64]*script.ExportStmt{},
 			},
 			"/projectA/file2": &script.File{
 				RelPath: "/projectA/file2",
-				Imports: map[uint64]*script.ImportStmt{2: &script.ImportStmt{Name: "*", RelPath: "./file3", Namespace: "flappy"}},
+				Imports: map[uint64]*script.ImportStmt{2: &script.ImportStmt{Name: "*", RelPath: "/projectA/file3", Namespace: "flappy"}},
 				Exports: map[uint64]*script.ExportStmt{2: &script.ExportStmt{Line: 3, RefCount: 0, Name: "funcTwo", Signature: "export function funcTwo()"}},
 			},
 			"/projectA/file3": &script.File{

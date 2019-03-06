@@ -8,16 +8,20 @@ import (
 
 func TestResolve(t *testing.T) {
 	fileset := map[string]string{
-		"/path/to/index.js":        "This is my index file.",
-		"/path/to/file.ts":         "This is my file.",
-		"/path/to/another_file.ts": "This is another file.",
-		"/path/to/relatedFile.js":  "This is a related JavaScript file.",
+		"/path/to/index.js":            "This is my index file.",
+		"/path/to/file.ts":             "This is my file.",
+		"/path/to/another_file.ts":     "This is another file.",
+		"/path/to/relatedFile.js":      "This is a related JavaScript file.",
+		"/path/to/definitionFile.d.ts": "This is a related type definition file.",
 	}
 	cases := map[string]string{
 		"/path/to/":                "/path/to/index.js",
 		"/path/to/file.ts":         "/path/to/file.ts",
 		"/path/to/another_file.ts": "/path/to/another_file.ts",
+		"/path/to/another_file":    "/path/to/another_file.ts",
+		"/path/to/relatedFile":     "/path/to/relatedFile.js",
 		"/path/to/relatedFile.js":  "/path/to/relatedFile.js",
+		"/path/to/definitionFile":  "/path/to/definitionFile.d.ts",
 		"/path/to/unknownFile.ts":  "", // error.
 		"":                         "", // error.
 	}
